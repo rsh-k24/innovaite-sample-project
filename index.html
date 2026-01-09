@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Carbon Aware Scheduler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Roboto', sans-serif; -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { width: 0px; background: transparent; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-black text-white min-h-screen antialiased pb-20">
+
+    <nav class="sticky top-0 z-50 bg-black border-b border-gray-800 px-6 py-4 flex justify-between items-center">
+        <h1 class="font-bold text-lg tracking-tight uppercase">Carbon Intensity Predictor</h1>
+        <div id="status-badge" class="px-3 py-1 bg-gray-900 rounded text-xs text-gray-400 font-mono">Initializing...</div>
+    </nav>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="fixed inset-0 z-40 bg-black flex flex-col items-center justify-center">
+        <div class="w-12 h-12 border-2 border-gray-800 border-t-green-500 rounded-full animate-spin"></div>
+        <p class="mt-4 text-gray-500 text-sm font-medium animate-pulse">Loading Neural Network...</p>
+    </div>
+
+    <main id="dashboard" class="hidden px-6 pt-8 max-w-7xl mx-auto space-y-8">
+        
+        <!-- Header -->
+        <header class="text-center space-y-2 border-b border-gray-900 pb-8">
+            <p class="text-gray-500 text-xs font-bold uppercase tracking-widest">Current Carbon Intensity</p>
+            <h2 id="hero-title" class="text-7xl font-black text-white tracking-tighter">---</h2>
+            <div id="hero-badge" class="inline-block px-4 py-1 rounded text-sm font-bold bg-gray-900 text-gray-300 mt-2">
+                --- gCO2/kWh
+            </div>
+        </header>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+            
+            <!-- LEFT: Chart & Viz -->
+            <div class="space-y-6">
+                <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 shadow-2xl">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-sm font-bold text-gray-300 uppercase">24h Forecast</h3>
+                        <span class="text-[10px] text-gray-500 uppercase">AI Prediction - NOT 100% ACCURATE</span>
+                    </div>
+                    <div class="h-64 w-full relative">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+
+                <div id="rec-card" class="bg-[#064e3b] rounded-xl p-6 transition-all">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <h3 class="text-green-300 font-bold text-sm uppercase tracking-wider">Grid Status</h3>
+                            <p class="text-white text-2xl font-bold mt-1" id="rec-time">Loading...</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-green-100/70 mt-2 font-medium" id="rec-desc">
+                        Live analysis of London's power grid.
+                    </p>
+                </div>
+            </div>
+
+            <!-- RIGHT: Scheduler -->
+            <div class="space-y-6">
+                
+                <!-- Scheduler Input -->
+                <div class="bg-gray-900/50 border border-gray-800 rounded-xl p-6 backdrop-blur-sm">
+                    <div class="flex justify-between items-center mb-4">
+                        <p class="text-gray-400 text-xs font-bold uppercase">Task Scheduler</p>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <button type="button" data-task="Washing Machine" class="task-btn bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-lg p-4 text-left transition text-sm font-bold text-gray-300 focus:outline-none">
+                            Washing Machine
+                        </button>
+                        <button type="button" data-task="Dishwasher" class="task-btn bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-lg p-4 text-left transition text-sm font-bold text-gray-300 focus:outline-none">
+                            Dishwasher
+                        </button>
+                        <button type="button" data-task="EV Charger" class="task-btn bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-lg p-4 text-left transition text-sm font-bold text-gray-300 focus:outline-none">
+                            EV Charger
+                        </button>
+                        <button type="button" id="btn-other" data-task="Other" class="task-btn bg-gray-900 border border-gray-800 hover:border-gray-600 rounded-lg p-4 text-left transition text-sm font-bold text-gray-300 focus:outline-none">
+                            Other / Custom
+                        </button>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div id="other-input-container" class="hidden space-y-1 animate-fade-in">
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">What appliance is it?</label>
+                            <input type="text" id="custom-task-name" placeholder="e.g. Gaming PC, Sauna, 3D Printer" class="w-full bg-black border border-gray-700 text-white text-sm rounded p-3 focus:outline-none focus:border-green-500 transition placeholder-gray-600">
+                        </div>
+
+                        <div class="space-y-1">
+                            <label class="text-[10px] font-bold text-gray-500 uppercase">Duration (Hours)</label>
+                            <input type="number" id="task-duration" value="1" min="1" max="12" class="w-full bg-black border border-gray-700 text-white text-sm rounded p-3 focus:outline-none focus:border-green-500 transition">
+                        </div>
+
+                        <button id="btn-schedule" class="w-full bg-white text-black hover:bg-gray-200 font-bold py-4 rounded-lg shadow-lg transition active:scale-95 uppercase tracking-wide text-sm flex justify-center items-center gap-2">
+                            <span>Analyze & Schedule</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Queue -->
+                <div>
+                    <h3 class="text-gray-500 text-xs font-bold uppercase mb-3 px-1">Schedule Queue</h3>
+                    <div id="task-list" class="space-y-3 pb-10">
+                        <!-- Empty State -->
+                        <div id="empty-state" class="text-center py-10 border-2 border-dashed border-gray-800 rounded-lg bg-gray-900/20">
+                            <p class="text-gray-600 text-sm font-medium">No tasks scheduled</p>
+                            <p class="text-gray-700 text-xs mt-1">Select an appliance to optimize</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+    <script>
+        // UI Handling Script
+        const taskBtns = document.querySelectorAll('.task-btn');
+        const otherContainer = document.getElementById('other-input-container');
+        const customInput = document.getElementById('custom-task-name');
+        
+        let selectedTaskType = null;
+
+        taskBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                taskBtns.forEach(b => {
+                    b.classList.remove('bg-gray-800', 'border-white', 'text-white', 'ring-1', 'ring-white');
+                    b.classList.add('bg-gray-900', 'border-gray-800', 'text-gray-300');
+                });
+                
+                // Active style
+                btn.classList.remove('bg-gray-900', 'border-gray-800', 'text-gray-300');
+                btn.classList.add('bg-gray-800', 'border-white', 'text-white', 'ring-1', 'ring-white');
+
+                selectedTaskType = btn.getAttribute('data-task');
+                
+                if (selectedTaskType === 'Other') {
+                    otherContainer.classList.remove('hidden');
+                    customInput.focus();
+                } else {
+                    otherContainer.classList.add('hidden');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
